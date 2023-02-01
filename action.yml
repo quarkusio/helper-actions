@@ -1,0 +1,18 @@
+name: 'Action helpers'
+description: 'GitHub Actions helpers for the Quarkus project'
+inputs:
+  github-token:
+    description: 'GitHub token'
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - id: install-jbang
+      run: curl -Ls https://sh.jbang.dev | bash -s - app setup
+      shell: bash
+    - id: action
+      run: ~/.jbang/bin/jbang --repos 'github=https://maven.pkg.github.com/quarkusio/action-helpers/' --repos 'mavencentral' io.quarkus.bot:action-helpers:999-SNAPSHOT
+      shell: bash
+      env:
+        JSON_INPUTS: ${{ toJSON(inputs) }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
