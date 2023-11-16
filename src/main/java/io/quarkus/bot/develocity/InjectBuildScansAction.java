@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
@@ -155,9 +156,9 @@ public class InjectBuildScansAction {
 
         @Override
         public Boolean call() throws Exception {
-            List<GHIssueComment> commentsSinceWorkflowRunStarted = pullRequest.queryComments()
+            List<GHIssueComment> commentsSinceWorkflowRunStarted = new ArrayList<>(pullRequest.queryComments()
                     .since(workflowRun.getCreatedAt())
-                    .list().toList();
+                    .list().toList());
             Collections.reverse(commentsSinceWorkflowRunStarted);
 
             String workflowRunIdMarker = String.format(WORKFLOW_RUN_ID_MARKER, workflowRun.getId());
