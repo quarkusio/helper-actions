@@ -3,6 +3,7 @@ package io.quarkus.bot.develocity;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
@@ -11,10 +12,13 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.TreeSet;
+import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 
 import jakarta.inject.Inject;
 
+import org.awaitility.Awaitility;
+import org.awaitility.core.ConditionTimeoutException;
 import org.kohsuke.github.GHCheckRun;
 import org.kohsuke.github.GHCheckRunBuilder.Output;
 import org.kohsuke.github.GHIssueComment;
@@ -33,7 +37,6 @@ import io.quarkiverse.githubaction.Inputs;
 
 public class InjectBuildScansAction {
 
-    private static final String BUILD_SUMMARY_CHECK_RUN_PREFIX = "Build summary for ";
     private static final String WORKFLOW_RUN_ID_MARKER = "<!-- Quarkus-GitHub-Bot/workflow-run-id:%1$s -->";
     private static final String BUILD_SCANS = "Build scans";
 
@@ -75,98 +78,123 @@ public class InjectBuildScansAction {
                 return;
             }
 
+            createBuildScansOutput(commands, workflowRun, statuses);
             updateComment(commands, pullRequest, workflowRun, buildScanMapping);
-            updateCheckRun(commands, repository, workflowRun, buildScanMapping);
-            createBuildScansOutput(workflowRun, statuses);
+
+            // note for future self: it is not possible to update an existing check run created by another GitHub App
         } catch (IOException e) {
             commands.error("Error trying to attach build scans to pull request #" + statuses.prNumber + ": " + e.getMessage());
         }
     }
 
     private void updateComment(Commands commands, GHPullRequest pullRequest, GHWorkflowRun workflowRun,
-            Map<String, String> buildScanMapping) throws IOException {
-        List<GHIssueComment> commentsSinceWorkflowRunStarted = pullRequest.queryComments()
-                .since(workflowRun.getCreatedAt())
-                .list().toList();
-        Collections.reverse(commentsSinceWorkflowRunStarted);
+            Map<String, String> buildScanMapping) {
+        try {
+            Optional<GHIssueComment> reportCommentCandidate = getPullRequestComment(commands, workflowRun, pullRequest);
 
-        String workflowRunIdMarker = String.format(WORKFLOW_RUN_ID_MARKER, workflowRun.getId());
-        Optional<GHIssueComment> reportCommentCandidate = commentsSinceWorkflowRunStarted.stream()
-                .filter(c -> c.getBody().contains(workflowRunIdMarker))
-                .findFirst();
+            if (reportCommentCandidate.isEmpty()) {
+                commands.warning("Unable to find a report comment to update");
+                return;
+            }
 
-        if (reportCommentCandidate.isEmpty()) {
+            GHIssueComment reportComment = reportCommentCandidate.get();
+
+            String updatedCommentBody = reportComment.getBody().lines().map(line -> {
+                for (Entry<String, String> buildScanEntry : buildScanMapping.entrySet()) {
+                    if (line.contains("| " + buildScanEntry.getKey() + " |")) {
+                        return line.replace(":construction:", "[:mag:](" + buildScanEntry.getValue() + ")");
+                    }
+                }
+                return line;
+            }).collect(Collectors.joining("\n"));
+
+            if (!updatedCommentBody.equals(reportComment.getBody())) {
+                reportComment.update(updatedCommentBody);
+            }
+        } catch (Exception e) {
+            commands.error("Unable to update the PR comment: " + e.getMessage());
+        }
+    }
+
+    private static Optional<GHIssueComment> getPullRequestComment(Commands commands, GHWorkflowRun workflowRun, GHPullRequest pullRequest) {
+        try {
+            PullRequestReportIsCreated pullRequestReportIsCreated = new PullRequestReportIsCreated(workflowRun, pullRequest);
+
+            Awaitility.await()
+                    .atMost(Duration.ofMinutes(15))
+                    .pollDelay(Duration.ofMinutes(2))
+                    .pollInterval(Duration.ofMinutes(3))
+                    .until(pullRequestReportIsCreated);
+
+            return pullRequestReportIsCreated.getReportComment();
+        } catch (ConditionTimeoutException e) {
             commands.warning("Unable to find a report comment to update");
-            return;
-        }
-
-        GHIssueComment reportComment = reportCommentCandidate.get();
-
-        String updatedCommentBody = reportComment.getBody().lines().map(line -> {
-            for (Entry<String, String> buildScanEntry : buildScanMapping.entrySet()) {
-                if (line.contains("| " + buildScanEntry.getKey() + " |")) {
-                    return line.replace(":construction:", "[:mag:](" + buildScanEntry.getValue() + ")");
-                }
-            }
-            return line;
-        }).collect(Collectors.joining("\n"));
-
-        if (!updatedCommentBody.equals(reportComment.getBody())) {
-            reportComment.update(updatedCommentBody);
+            return Optional.empty();
         }
     }
 
-    private void updateCheckRun(Commands commands, GHRepository repository, GHWorkflowRun workflowRun,
-            Map<String, String> buildScanMapping) throws IOException {
+    private static class PullRequestReportIsCreated implements Callable<Boolean> {
 
-        Optional<GHCheckRun> reportCheckRunCandidate = repository.getCheckRuns(workflowRun.getHeadSha()).toList().stream()
-                .filter(cr -> cr.getOutput() != null)
-                .filter(cr -> cr.getOutput().getTitle().startsWith(BUILD_SUMMARY_CHECK_RUN_PREFIX))
-                .filter(cr -> cr.getOutput().getText() != null && !cr.getOutput().getText().isBlank())
-                .findAny();
+        private final GHWorkflowRun workflowRun;
+        private final GHPullRequest pullRequest;
 
-        if (reportCheckRunCandidate.isEmpty()) {
-            commands.warning("Unable to find a check run to update");
-            return;
+        private GHIssueComment reportComment;
+
+        private PullRequestReportIsCreated(GHWorkflowRun workflowRun, GHPullRequest pullRequest) {
+            this.workflowRun = workflowRun;
+            this.pullRequest = pullRequest;
         }
 
-        GHCheckRun reportCheckRun = reportCheckRunCandidate.get();
+        @Override
+        public Boolean call() throws Exception {
+            List<GHIssueComment> commentsSinceWorkflowRunStarted = pullRequest.queryComments()
+                    .since(workflowRun.getCreatedAt())
+                    .list().toList();
+            Collections.reverse(commentsSinceWorkflowRunStarted);
 
-        Output output = new Output(reportCheckRun.getOutput().getTitle(), reportCheckRun.getOutput().getSummary());
+            String workflowRunIdMarker = String.format(WORKFLOW_RUN_ID_MARKER, workflowRun.getId());
 
-        String updatedReportText = reportCheckRun.getOutput().getText().lines().map(line -> {
-            for (Entry<String, String> buildScanEntry : buildScanMapping.entrySet()) {
-                if (line.contains("| " + buildScanEntry.getKey() + " |")) {
-                    return line.replace(":construction:", "[:mag:](" + buildScanEntry.getValue() + ")");
-                }
+            Optional<GHIssueComment> reportCommentCandidate = commentsSinceWorkflowRunStarted.stream()
+                    .filter(c -> c.getBody().contains(workflowRunIdMarker))
+                    .findFirst();
+
+            if (reportCommentCandidate.isEmpty()) {
+                return false;
             }
-            return line;
-        }).collect(Collectors.joining("\n"));
 
-        if (!updatedReportText.equals(reportCheckRun.getOutput().getText())) {
-            reportCheckRun.update().add(output).create();
+            reportComment = reportCommentCandidate.get();
+
+            return true;
+        }
+
+        public Optional<GHIssueComment> getReportComment() {
+            return Optional.ofNullable(reportComment);
         }
     }
 
-    private void createBuildScansOutput(GHWorkflowRun workflowRun, BuildScanStatuses statuses) throws IOException {
-        Output output = new Output(BUILD_SCANS, BUILD_SCANS);
+    private void createBuildScansOutput(Commands commands, GHWorkflowRun workflowRun, BuildScanStatuses statuses) {
+        try {
+            Output output = new Output(BUILD_SCANS, BUILD_SCANS);
 
-        StringBuilder buildScans = new StringBuilder();
-        buildScans.append("| Status | Name | Build scan |\n");
-        buildScans.append("| :-:  | --  | :-:  |\n");
+            StringBuilder buildScans = new StringBuilder();
+            buildScans.append("| Status | Name | Build scan |\n");
+            buildScans.append("| :-:  | --  | :-:  |\n");
 
-        for (BuildScanStatus build : statuses.builds) {
-            buildScans.append("| ").append(getConclusionEmoji(build.status)).append(" | ").append(build.jobName)
-                    .append(" | [:mag:](").append(build.buildScanLink).append(") |");
+            for (BuildScanStatus build : statuses.builds) {
+                buildScans.append("| ").append(getConclusionEmoji(build.status)).append(" | ").append(build.jobName)
+                        .append(" | [:mag:](").append(build.buildScanLink).append(") |");
+            }
+
+            output.withText(buildScans.toString());
+
+            workflowRun.getRepository().createCheckRun(BUILD_SCANS, workflowRun.getHeadSha())
+                    .add(output)
+                    .withConclusion(GHCheckRun.Conclusion.NEUTRAL)
+                    .withCompletedAt(new Date())
+                    .create();
+        } catch (Exception e) {
+            commands.error("Unable to create a check run with build scans: " + e.getMessage());
         }
-
-        output.withText(buildScans.toString());
-
-        workflowRun.getRepository().createCheckRun(BUILD_SCANS, workflowRun.getHeadSha())
-                .add(output)
-                .withConclusion(GHCheckRun.Conclusion.NEUTRAL)
-                .withCompletedAt(new Date())
-                .create();
     }
 
     private static String getConclusionEmoji(String conclusion) {
