@@ -38,6 +38,7 @@ import io.quarkiverse.githubaction.Inputs;
 public class InjectBuildScansAction {
 
     private static final String WORKFLOW_RUN_ID_MARKER = "<!-- Quarkus-GitHub-Bot/workflow-run-id:%1$s -->";
+    private static final String BUILD_SCANS_CHECK_RUN_MARKER = "<!-- Quarkus-GitHub-Bot/build-scans-check-run -->";
     private static final String BUILD_SCANS = "Build scans";
 
     @Inject
@@ -78,8 +79,8 @@ public class InjectBuildScansAction {
                 return;
             }
 
-            createBuildScansOutput(commands, workflowRun, statuses);
-            updateComment(commands, pullRequest, workflowRun, buildScanMapping);
+            Optional<GHCheckRun> buildScansCheckRun = createBuildScansOutput(commands, workflowRun, statuses);
+            updateComment(commands, pullRequest, workflowRun, buildScanMapping, buildScansCheckRun);
 
             // note for future self: it is not possible to update an existing check run created by another GitHub App
         } catch (IOException e) {
@@ -88,7 +89,7 @@ public class InjectBuildScansAction {
     }
 
     private void updateComment(Commands commands, GHPullRequest pullRequest, GHWorkflowRun workflowRun,
-            Map<String, String> buildScanMapping) {
+            Map<String, String> buildScanMapping, Optional<GHCheckRun> buildScansCheckRun) {
         try {
             Optional<GHIssueComment> reportCommentCandidate = getPullRequestComment(commands, workflowRun, pullRequest);
 
@@ -105,14 +106,21 @@ public class InjectBuildScansAction {
                         return line.replace(":construction:", "[:mag:](" + buildScanEntry.getValue() + ")");
                     }
                 }
+
                 return line;
             }).collect(Collectors.joining("\n"));
+
+            if (buildScansCheckRun.isPresent()) {
+                updatedCommentBody = updatedCommentBody.replace(BUILD_SCANS_CHECK_RUN_MARKER,
+                        "You can also consult the [Develocity build scans](" + buildScansCheckRun.get().getHtmlUrl() + ").");
+            }
 
             if (!updatedCommentBody.equals(reportComment.getBody())) {
                 reportComment.update(updatedCommentBody);
             }
         } catch (Exception e) {
             commands.error("Unable to update the PR comment: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -172,9 +180,9 @@ public class InjectBuildScansAction {
         }
     }
 
-    private void createBuildScansOutput(Commands commands, GHWorkflowRun workflowRun, BuildScanStatuses statuses) {
+    private Optional<GHCheckRun> createBuildScansOutput(Commands commands, GHWorkflowRun workflowRun, BuildScanStatuses statuses) {
         try {
-            Output output = new Output(BUILD_SCANS, BUILD_SCANS);
+            Output output = new Output(BUILD_SCANS, "You will find below links to the Develocity build scans for this workflow run.");
 
             StringBuilder buildScans = new StringBuilder();
             buildScans.append("| Status | Name | Build scan |\n");
@@ -182,18 +190,20 @@ public class InjectBuildScansAction {
 
             for (BuildScanStatus build : statuses.builds) {
                 buildScans.append("| ").append(getConclusionEmoji(build.status)).append(" | ").append(build.jobName)
-                        .append(" | [:mag:](").append(build.buildScanLink).append(") |");
+                        .append(" | [:mag:](").append(build.buildScanLink).append(") |\n");
             }
 
             output.withText(buildScans.toString());
 
-            workflowRun.getRepository().createCheckRun(BUILD_SCANS, workflowRun.getHeadSha())
+            return Optional.of(workflowRun.getRepository().createCheckRun(BUILD_SCANS, workflowRun.getHeadSha())
                     .add(output)
                     .withConclusion(GHCheckRun.Conclusion.NEUTRAL)
                     .withCompletedAt(new Date())
-                    .create();
+                    .create());
         } catch (Exception e) {
             commands.error("Unable to create a check run with build scans: " + e.getMessage());
+            e.printStackTrace();
+            return Optional.empty();
         }
     }
 
