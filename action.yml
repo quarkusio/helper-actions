@@ -10,6 +10,9 @@ inputs:
   workflow-run-id:
     description: 'Workflow run id'
     required: false
+  build-metadata-file-path:
+    description: 'Path to the build-metadata.json file'
+    required: false
 runs:
   using: "composite"
   steps:

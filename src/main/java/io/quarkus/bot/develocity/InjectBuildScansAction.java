@@ -47,9 +47,19 @@ public class InjectBuildScansAction {
 
     @Action("inject-build-scans")
     void injectBuildScans(Context context, Commands commands, Inputs inputs, GitHub github) {
-        Path buildMetadataJson = Path.of("build-metadata.json");
-        if (!Files.isReadable(buildMetadataJson)) {
-            commands.warning(buildMetadataJson + " is not readable, ignoring");
+        Path buildMetadataJson = null;
+
+        Optional<String> buildMetadataFilePath = inputs.get("build-metadata-file-path");
+        if(buildMetadataFilePath.isPresent()) {
+            buildMetadataJson = Path.of(buildMetadataFilePath.get());
+            if (!Files.isReadable(buildMetadataJson)) {
+                commands.warning(buildMetadataJson + " is not readable, ignoring");
+                return;
+            }
+        }
+
+        if(buildMetadataJson == null) {
+            commands.warning("Build metadata file path input is not provided, ignoring");
             return;
         }
 
