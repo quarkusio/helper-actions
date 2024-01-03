@@ -79,6 +79,7 @@ public class InjectBuildScansAction {
         }
 
         Map<String, String> buildScanMapping = statuses.builds.stream()
+                .filter(s -> s.jobName != null)
                 .collect(Collectors.toMap(s -> s.jobName, s -> s.buildScanLink));
 
         try {
@@ -200,7 +201,7 @@ public class InjectBuildScansAction {
             buildScans.append("| :-:  | --  | :-:  |\n");
 
             for (BuildScanStatus build : statuses.builds) {
-                buildScans.append("| ").append(getConclusionEmoji(build.status)).append(" | ").append(build.jobName)
+                buildScans.append("| ").append(getConclusionEmoji(build.buildFailure)).append(" | ").append(build.jobName)
                         .append(" | [:mag:](").append(build.buildScanLink).append(") |\n");
             }
 
@@ -218,24 +219,16 @@ public class InjectBuildScansAction {
         }
     }
 
-    private static String getConclusionEmoji(String conclusion) {
-        // apparently, conclusion can sometimes be null...
-        if (conclusion == null) {
+    private static String getConclusionEmoji(Boolean buildFailure) {
+        if (buildFailure == null) {
             return ":question:";
         }
 
-        switch (conclusion) {
-            case "success":
-                return ":heavy_check_mark:";
-            case "failure":
-                return "✖";
-            case "cancelled":
-                return ":hourglass:";
-            case "skipped":
-                return ":no_entry_sign:";
-            default:
-                return ":question:";
+        if (buildFailure) {
+            return "✖";
         }
+
+        return ":heavy_check_mark:";
     }
 
     public static class BuildScanStatuses {
@@ -249,7 +242,7 @@ public class InjectBuildScansAction {
 
         public String jobName;
 
-        public String status;
+        public Boolean buildFailure;
 
         public String buildScanLink;
 
