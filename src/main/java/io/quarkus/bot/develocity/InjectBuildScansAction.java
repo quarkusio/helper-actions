@@ -79,6 +79,7 @@ public class InjectBuildScansAction {
         }
 
         Map<String, String> buildScanMapping = statuses.builds.stream()
+                .filter(s -> s.jobName != null)
                 .collect(Collectors.toMap(s -> s.jobName, s -> s.buildScanLink));
 
         try {
