@@ -125,6 +125,9 @@ public class InjectBuildScansAction {
             if (buildScansCheckRun.isPresent()) {
                 updatedCommentBody = updatedCommentBody.replace(BUILD_SCANS_CHECK_RUN_MARKER,
                         "You can also consult the [Develocity build scans](" + buildScansCheckRun.get().getHtmlUrl() + ").");
+
+                commands.appendJobSummary("Develocity build scans have been published for pull request #" + pullRequest.getNumber() + "\n\n"
+                        + "Check run: " + buildScansCheckRun.get().getHtmlUrl());
             }
 
             if (!updatedCommentBody.equals(reportComment.getBody())) {
