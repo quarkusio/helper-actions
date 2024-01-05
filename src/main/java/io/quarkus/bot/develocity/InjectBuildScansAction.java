@@ -50,7 +50,7 @@ public class InjectBuildScansAction {
         Path buildMetadataJson = null;
 
         Optional<String> buildMetadataFilePath = inputs.get("build-metadata-file-path");
-        if(buildMetadataFilePath.isPresent()) {
+        if (buildMetadataFilePath.isPresent()) {
             buildMetadataJson = Path.of(buildMetadataFilePath.get());
             if (!Files.isReadable(buildMetadataJson)) {
                 commands.warning(buildMetadataJson + " is not readable, ignoring");
@@ -58,7 +58,7 @@ public class InjectBuildScansAction {
             }
         }
 
-        if(buildMetadataJson == null) {
+        if (buildMetadataJson == null) {
             commands.warning("Build metadata file path input is not provided, ignoring");
             return;
         }
@@ -92,6 +92,13 @@ public class InjectBuildScansAction {
             }
 
             Optional<GHCheckRun> buildScansCheckRun = createBuildScansOutput(commands, workflowRun, statuses);
+
+            if (buildScansCheckRun.isPresent()) {
+                commands.appendJobSummary("Develocity build scans have been published for pull request [#"
+                        + pullRequest.getNumber() + "](" + pullRequest.getHtmlUrl() + ")\n\n"
+                        + "Check run: " + buildScansCheckRun.get().getHtmlUrl());
+            }
+
             updateComment(commands, pullRequest, workflowRun, buildScanMapping, buildScansCheckRun);
 
             // note for future self: it is not possible to update an existing check run created by another GitHub App
@@ -124,10 +131,7 @@ public class InjectBuildScansAction {
 
             if (buildScansCheckRun.isPresent()) {
                 updatedCommentBody = updatedCommentBody.replace(BUILD_SCANS_CHECK_RUN_MARKER,
-                        "You can also consult the [Develocity build scans](" + buildScansCheckRun.get().getHtmlUrl() + ").");
-
-                commands.appendJobSummary("Develocity build scans have been published for pull request #" + pullRequest.getNumber() + "\n\n"
-                        + "Check run: " + buildScansCheckRun.get().getHtmlUrl());
+                        "You can consult the [Develocity build scans](" + buildScansCheckRun.get().getHtmlUrl() + ").");
             }
 
             if (!updatedCommentBody.equals(reportComment.getBody())) {
