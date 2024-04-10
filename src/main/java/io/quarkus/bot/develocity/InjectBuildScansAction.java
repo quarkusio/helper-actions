@@ -38,9 +38,14 @@ import io.quarkiverse.githubaction.Inputs;
 
 public class InjectBuildScansAction {
 
-    private static final String WORKFLOW_RUN_ID_MARKER = "<!-- Quarkus-GitHub-Bot/workflow-run-id:%1$s -->";
-    private static final String BUILD_SCANS_CHECK_RUN_MARKER = "<!-- Quarkus-GitHub-Bot/build-scans-check-run -->";
+    public static final String WORKFLOW_RUN_ID_MARKER = "<!-- Build-Reporter/workflow-run-id:%1$s -->";
+    public static final String BUILD_SCANS_CHECK_RUN_MARKER = "<!-- Build-Reporter/build-scans-check-run -->";
     private static final String BUILD_SCANS = "Build scans";
+
+    @Deprecated(forRemoval = true)
+    private static final String OLD_WORKFLOW_RUN_ID_MARKER = "<!-- Quarkus-GitHub-Bot/workflow-run-id:%1$s -->";
+    @Deprecated(forRemoval = true)
+    private static final String OLD_BUILD_SCANS_CHECK_RUN_MARKER = "<!-- Quarkus-GitHub-Bot/build-scans-check-run -->";
 
     @Inject
     ObjectMapper objectMapper;
@@ -130,8 +135,10 @@ public class InjectBuildScansAction {
             }).collect(Collectors.joining("\n"));
 
             if (buildScansCheckRun.isPresent()) {
-                updatedCommentBody = updatedCommentBody.replace(BUILD_SCANS_CHECK_RUN_MARKER,
-                        "You can consult the [Develocity build scans](" + buildScansCheckRun.get().getHtmlUrl() + ").");
+                String buildScansLink = "You can consult the [Develocity build scans](" + buildScansCheckRun.get().getHtmlUrl() + ").";
+
+                updatedCommentBody = updatedCommentBody.replace(BUILD_SCANS_CHECK_RUN_MARKER, buildScansLink);
+                updatedCommentBody = updatedCommentBody.replace(OLD_BUILD_SCANS_CHECK_RUN_MARKER, buildScansLink);
             }
 
             if (!updatedCommentBody.equals(reportComment.getBody())) {
@@ -180,9 +187,10 @@ public class InjectBuildScansAction {
             Collections.reverse(commentsSinceWorkflowRunStarted);
 
             String workflowRunIdMarker = String.format(WORKFLOW_RUN_ID_MARKER, workflowRun.getId());
+            String oldWorkflowRunIdMarker = String.format(OLD_WORKFLOW_RUN_ID_MARKER, workflowRun.getId());
 
             Optional<GHIssueComment> reportCommentCandidate = commentsSinceWorkflowRunStarted.stream()
-                    .filter(c -> c.getBody().contains(workflowRunIdMarker))
+                    .filter(c -> c.getBody().contains(workflowRunIdMarker) || c.getBody().contains(oldWorkflowRunIdMarker))
                     .findFirst();
 
             if (reportCommentCandidate.isEmpty()) {
