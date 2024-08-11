@@ -13,6 +13,15 @@ inputs:
   build-metadata-file-path:
     description: 'Path to the build-metadata.json file'
     required: false
+  body:
+    description: 'Body of the comment'
+    required: false
+  body-marker:
+    description: 'Comment marker'
+    required: false
+  pr-number:
+    description: 'The number of the pull request'
+    required: false
 runs:
   using: "composite"
   steps:
